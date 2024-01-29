@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+      "target": "ESNext",                          
+      "module": "NodeNext",
+      "moduleResolution": "NodeNext",                    
+      "lib": ["ESNext", "DOM", "DOM.Iterable"],
+      "allowSyntheticDefaultImports": true,                     
+      "allowJs": true,
+      "outDir": "dist",                          
+      "rootDir": "src",
+      "strict": false,         
+      "noImplicitAny": false,
+      "esModuleInterop": true,
+      "resolveJsonModule": true,
+      "skipLibCheck": true,
+      "forceConsistentCasingInFileNames": false,
+      "strictPropertyInitialization": false
+    },
+    "include": ["src/*.ts"], 
+    "exclude": ["dist", "node_modules", "build/*.js"]
+  }
