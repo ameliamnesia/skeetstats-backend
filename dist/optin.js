@@ -73,13 +73,14 @@ export async function updateIsReadStatus(cid) {
     });
 }
 export async function deleteReadPosts() {
-    // Construct the SQL query to delete rows
     const deleteQuery = `DELETE FROM post WHERE isRead = 1`;
-    connection.query(deleteQuery, (error) => {
-        if (error) {
-            console.error('Error deleting read posts:', error.message);
-            writeLog('error.log', (`error deleting read posts: ${error.message}`));
+    connection.query(deleteQuery, (deleteError, { affectedRows }) => {
+        if (deleteError) {
+            console.error('Error deleting posts:', deleteError);
+            writeLog('error.log', (`error deleting read posts: ${deleteError}`));
+            return;
         }
+        console.log(`Deleted ${affectedRows} posts.`);
     });
 }
 export async function selectUnreadPosts() {

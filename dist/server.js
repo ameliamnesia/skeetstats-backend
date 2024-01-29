@@ -139,11 +139,16 @@ cron.schedule('00 23 * * *', async () => {
         // Process each row and insert data into the "stats" table
         for (const optedInRow of optedInRows) {
             const { dids } = optedInRow;
-            // Fetch data using the agent.getProfile
-            let gp = await agent.getProfile({ actor: dids });
-            // Insert the fetched data into the "stats" table
-            const insertQuery = 'INSERT INTO stats (did, date, followersCount, followsCount, postsCount) VALUES (?, ?, ?, ?, ?)';
-            await executeQuery(insertQuery, [gp.data.did, formattedTime, gp.data.followersCount, gp.data.followsCount, gp.data.postsCount]);
+            try {
+                // Fetch data using the agent.getProfile
+                let gp = await agent.getProfile({ actor: dids });
+                // Insert the fetched data into the "stats" table
+                const insertQuery = 'INSERT INTO stats (did, date, followersCount, followsCount, postsCount) VALUES (?, ?, ?, ?, ?)';
+                await executeQuery(insertQuery, [gp.data.did, formattedTime, gp.data.followersCount, gp.data.followsCount, gp.data.postsCount]);
+            }
+            catch (error) {
+                writeLog('stats.log', (`Error processing ${dids ?? 'user'}: ${error.message}`));
+            }
         }
         console.log('Cron job executed successfully');
     }
