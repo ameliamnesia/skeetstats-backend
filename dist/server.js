@@ -148,6 +148,7 @@ cron.schedule('00 23 * * *', async () => {
             }
             catch (error) {
                 writeLog('stats.log', (`Error processing ${dids ?? 'user'}: ${error.message}`));
+                continue;
             }
         }
         console.log('Cron job executed successfully');

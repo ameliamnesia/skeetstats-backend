@@ -158,6 +158,7 @@ cron.schedule('00 23 * * *', async () => {
       await executeQuery(insertQuery, [gp.data.did, formattedTime, gp.data.followersCount, gp.data.followsCount, gp.data.postsCount]);
       } catch (error) {
       writeLog('stats.log', (`Error processing ${dids ?? 'user'}: ${error.message}`))
+      continue;
       }
     }
     console.log('Cron job executed successfully');
