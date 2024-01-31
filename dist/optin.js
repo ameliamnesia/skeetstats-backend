@@ -73,14 +73,29 @@ export async function updateIsReadStatus(cid) {
     });
 }
 export async function deleteReadPosts() {
-    const deleteQuery = `DELETE FROM post WHERE isRead = 1`;
-    connection.query(deleteQuery, (deleteError, { affectedRows }) => {
-        if (deleteError) {
-            console.error('Error deleting posts:', deleteError);
-            writeLog('error.log', (`error deleting read posts: ${deleteError}`));
+    const countQuery = `SELECT COUNT(*) as rowCount FROM post WHERE isRead = 1`;
+    connection.query(countQuery, (countError, [{ rowCount }]) => {
+        if (countError) {
+            console.error('Error counting read posts:', countError);
+            writeLog('error.log', (`error counting read posts: ${countError}`));
             return;
         }
-        console.log(`Deleted ${affectedRows} posts.`);
+        if (rowCount > 0) {
+            // There are read posts to delete
+            const deleteQuery = `DELETE FROM post WHERE isRead = 1`;
+            connection.query(deleteQuery, (deleteError, { affectedRows }) => {
+                if (deleteError) {
+                    console.error('Error deleting posts:', deleteError);
+                    writeLog('error.log', (`error deleting read posts: ${deleteError}`));
+                    return;
+                }
+                console.log(`Deleted ${affectedRows} posts.`);
+            });
+        }
+        else {
+            // No read posts to delete
+            console.log('No read posts to delete.');
+        }
     });
 }
 export async function selectUnreadPosts() {

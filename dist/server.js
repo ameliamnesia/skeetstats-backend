@@ -243,7 +243,7 @@ export async function checkSession(did) {
     }
 }
 await selectUnreadPosts();
-await deleteReadPosts();
+//await deleteReadPosts();
 setInterval(selectUnreadPosts, 60000);
 setInterval(deleteReadPosts, 24 * 60 * 60 * 1000);
 // Start the HTTPS server
