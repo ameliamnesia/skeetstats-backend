@@ -94,7 +94,10 @@ app.get('/api/suggested/:handle', async (req, res) => {
         const { handle } = req.params;
         await checkSession(backend_did);
         let suggested = await agent.app.bsky.graph.getSuggestedFollowsByActor({ actor: handle });
-        res.json(suggested.data);
+        const allSugg = suggested.data.suggestions;
+        const topTen = allSugg.slice(0, 10);
+        res.json(topTen);
+        //res.json(suggested.data);
     }
     catch (error) {
         console.error('Error fetching suggestions:', error);
@@ -120,6 +123,18 @@ app.get('/api/followers/:handle/:cursor?', async (req, res) => {
     catch (error) {
         console.error('Error fetching followers:', error);
         writeLog('error.log', (`Error fetching followers: ${error}`));
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+app.post('/api/resolve/:handle', async (req, res) => {
+    try {
+        const { handle } = req.params;
+        const result = await agent.resolveHandle({ handle });
+        let resolved = result.data.did;
+        res.status(200).json(resolved);
+    }
+    catch (error) {
+        console.error(error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
