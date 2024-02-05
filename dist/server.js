@@ -74,6 +74,21 @@ app.get('/api/stats/:userdid', (req, res) => {
         }
     });
 });
+// Stats for charts
+app.get('/api/charts/:userdid', (req, res) => {
+    const { userdid } = req.params;
+    const filterDid = userdid.replace(/[@'";]/g, ''); //strip leading @ and prevent sqli
+    const query = `SELECT date, followersCount, followsCount, postsCount FROM stats WHERE did = ? ORDER BY date ASC LIMIT 30`;
+    connection.query(query, [filterDid], (err, results) => {
+        if (err) {
+            writeLog('error.log', (`Error fetching chart data: ${err}`));
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+        else {
+            res.json(results);
+        }
+    });
+});
 // Endpoint to get profile information by handle
 app.get('/api/profile/:handle', async (req, res) => {
     try {
@@ -126,6 +141,7 @@ app.get('/api/followers/:handle/:cursor?', async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+//resolve handle to did
 app.post('/api/resolve/:handle', async (req, res) => {
     try {
         const { handle } = req.params;
@@ -136,6 +152,23 @@ app.post('/api/resolve/:handle', async (req, res) => {
     catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+// Autocomplete endpoint
+app.use(express.json());
+app.post('/autocomplete', async (req, res) => {
+    await checkSession(backend_did);
+    try {
+        const { query } = req.body;
+        if (!query) {
+            return res.status(400).json({ error: 'Missing search query (q) in request body.' });
+        }
+        const autoCompleteResults = await agent.searchActorsTypeahead({ q: query });
+        res.json({ results: autoCompleteResults.data.actors });
+    }
+    catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 //REDIRECT, DO NOT PUT ANY ROUTES AFTER THIS//

@@ -5,11 +5,11 @@ import { request } from 'node:https';
 import { connection } from './server.js';
 import { updateIsReadStatus } from './optin.js';
 import { writeLog } from './util.js';
-export async function checkStatus(did, cid, uri, name, handle, callback) {
+export async function checkStatus(did, cid, uri, name, handle, replyParent, replyParentCid, replyRoot, replyRootCid, callback) {
     const sql = 'SELECT * FROM opted_in WHERE dids = ?';
     let noUserExists = `, you're not currently opted in. tag me again with the command !optin to be in the next update`;
     let userExists = `, you're opted in!`;
-    connection.query(sql, [did]);
+    //connection.query(sql, [did]);
     connection.query(sql, [did], async (error, results) => {
         if (error) {
             console.error('Error checking status from the database:', error);
@@ -18,16 +18,16 @@ export async function checkStatus(did, cid, uri, name, handle, callback) {
         }
         if (results.length > 0) {
             //console.log(`Data removed successfully for did: ${did}`);
-            await reply(did, cid, uri, name, handle, userExists);
+            await reply(did, cid, uri, name, handle, userExists, replyParent, replyParentCid, replyRoot, replyRootCid);
         }
         else {
             //console.log(`Data with did ${did} not found.`);
-            await reply(did, cid, uri, name, handle, noUserExists);
+            await reply(did, cid, uri, name, handle, noUserExists, replyParent, replyParentCid, replyRoot, replyRootCid);
         }
         callback(null, results);
     });
 }
-export async function insertDataIntoTable(did, cid, uri, name, handle, callback) {
+export async function insertDataIntoTable(did, cid, uri, name, handle, replyParent, replyParentCid, replyRoot, replyRootCid, callback) {
     let userExists = `, you're already opted in`;
     let userOptedIn = `, you've opted in!`;
     const sql = 'INSERT INTO opted_in (dids) VALUES (?)';
@@ -35,7 +35,7 @@ export async function insertDataIntoTable(did, cid, uri, name, handle, callback)
         if (error) {
             if (error.code === 'ER_DUP_ENTRY') {
                 console.log(`User with did ${did} already exists.`);
-                await reply(did, cid, uri, name, handle, userExists);
+                await reply(did, cid, uri, name, handle, userExists, replyParent, replyParentCid, replyRoot, replyRootCid);
                 return callback(null); // treat as success
             }
             console.error('Error inserting data into the database:', error);
@@ -43,11 +43,11 @@ export async function insertDataIntoTable(did, cid, uri, name, handle, callback)
             return callback(error);
         }
         console.log(`Data inserted successfully for did: ${did}`);
-        await reply(did, cid, uri, name, handle, userOptedIn);
+        await reply(did, cid, uri, name, handle, userOptedIn, replyParent, replyParentCid, replyRoot, replyRootCid);
         callback(null, results);
     });
 }
-export async function removeDataFromTable(did, cid, uri, name, handle, callback) {
+export async function removeDataFromTable(did, cid, uri, name, handle, replyParent, replyParentCid, replyRoot, replyRootCid, callback) {
     let noUserExists = `, you're not currently opted in`;
     let userOptedOut = `, you've been opted out!`;
     const sql = 'DELETE FROM opted_in WHERE dids = ?';
@@ -59,18 +59,18 @@ export async function removeDataFromTable(did, cid, uri, name, handle, callback)
         }
         if (results.affectedRows > 0) {
             console.log(`Data removed successfully for did: ${did}`);
-            await reply(did, cid, uri, name, handle, userOptedOut);
+            await reply(did, cid, uri, name, handle, userOptedOut, replyParent, replyParentCid, replyRoot, replyRootCid);
         }
         else {
             console.log(`Data with did ${did} not found.`);
-            await reply(did, cid, uri, name, handle, noUserExists);
+            await reply(did, cid, uri, name, handle, noUserExists, replyParent, replyParentCid, replyRoot, replyRootCid);
         }
         callback(null, results);
     });
 }
-export async function unknownCommand(did, cid, uri, name, handle, callback) {
+export async function unknownCommand(did, cid, uri, name, handle, replyParent, replyParentCid, replyRoot, replyRootCid, callback) {
     let weirdCommand = `, sorry i'm not familiar with that command. if it is a valid command please tag @/ameliamnesia.xyz`;
-    await reply(did, cid, uri, name, handle, weirdCommand);
+    await reply(did, cid, uri, name, handle, weirdCommand, replyParent, replyParentCid, replyRoot, replyRootCid);
     callback(null);
 }
 export async function getMeta(url) {
@@ -104,7 +104,7 @@ export async function getMeta(url) {
         req.end();
     });
 }
-export async function reply(authordid, cid, uri, name, handle, replytext) {
+export async function reply(authordid, cid, uri, name, handle, replytext, replyParent, replyParentCid, replyRoot, replyRootCid) {
     await checkSession(backend_did);
     const websiteUrl = 'https://skeetstats.xyz';
     const { title, description } = await getMeta(websiteUrl);
@@ -120,8 +120,8 @@ export async function reply(authordid, cid, uri, name, handle, replytext) {
                 uri: uri,
             },
             root: {
-                cid: cid,
-                uri: uri,
+                cid: replyRootCid ?? cid,
+                uri: replyRoot ?? uri,
             },
         },
         text: trunchandle + replytext,

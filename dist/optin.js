@@ -12,7 +12,7 @@ export async function processPost(post) {
     try {
         if (post.text === "!optin") {
             let profile = await fetchProfile(post.author);
-            await insertDataIntoTable(post.author, post.cid, post.uri, profile.name, profile.handle, async (error) => {
+            await insertDataIntoTable(post.author, post.cid, post.uri, profile.name, profile.handle, post.replyParent, post.replyParentCid, post.replyRoot, post.replyRootCid, async (error) => {
                 if (error) {
                     console.error('Error in opt-in command:', error);
                     writeLog('cmd_error.log', (`error handling opt in command: ${error}`));
@@ -21,7 +21,7 @@ export async function processPost(post) {
         }
         else if (post.text === "!optout") {
             let profile = await fetchProfile(post.author);
-            await removeDataFromTable(post.author, post.cid, post.uri, profile.name, profile.handle, async (error) => {
+            await removeDataFromTable(post.author, post.cid, post.uri, profile.name, post.replyParent, post.replyParentCid, post.replyRoot, post.replyRootCid, profile.handle, async (error) => {
                 if (error) {
                     console.error('Error in opt out command:', error);
                     writeLog('cmd_error.log', (`error handling opt out command: ${error}`));
@@ -30,7 +30,7 @@ export async function processPost(post) {
         }
         else if (post.text === "!status") {
             let profile = await fetchProfile(post.author);
-            await checkStatus(post.author, post.cid, post.uri, profile.name, profile.handle, async (error) => {
+            await checkStatus(post.author, post.cid, post.uri, profile.name, profile.handle, post.replyParent, post.replyParentCid, post.replyRoot, post.replyRootCid, async (error) => {
                 if (error) {
                     console.error('Error checking status:', error);
                     writeLog('cmd_error.log', (`error handling status command: ${error}`));
@@ -39,7 +39,7 @@ export async function processPost(post) {
         }
         else {
             let profile = await fetchProfile(post.author);
-            await unknownCommand(post.author, post.cid, post.uri, profile.name, profile.handle, async (error) => {
+            await unknownCommand(post.author, post.cid, post.uri, profile.name, profile.handle, post.replyParent, post.replyParentCid, post.replyRoot, post.replyRootCid, async (error) => {
                 if (error) {
                     console.error('Error handling unknown command:', error);
                     writeLog('cmd_error.log', (`error handling unknown command: ${error}`));
@@ -99,7 +99,7 @@ export async function deleteReadPosts() {
     });
 }
 export async function selectUnreadPosts() {
-    const sqlQuery = 'SELECT cid, uri, author, text FROM post WHERE isRead = 0';
+    const sqlQuery = 'SELECT cid, uri, replyParent, replyParentCid, replyRoot, replyRootCid, author, text FROM post WHERE isRead = 0';
     connection.query(sqlQuery, async (error, results) => {
         if (error) {
             console.error('error selecting unread:', error.message);
@@ -108,6 +108,7 @@ export async function selectUnreadPosts() {
         else {
             for (const post of results) {
                 await processPost(post);
+                //console.log(post)
             }
         }
     });
