@@ -16,7 +16,7 @@ import cron from 'node-cron';
 import { writeLog } from './util.js';
 dotenv.config();
 
-const app = express();
+export const app = express();
 //const port = 3001;
 const httpsPort = 8443;
 
@@ -86,7 +86,7 @@ app.get('/api/stats/:userdid', (req: Request, res: Response) => {
 app.get('/api/charts/:userdid', (req: Request, res: Response) => {
   const { userdid } = req.params;
   const filterDid = userdid.replace(/[@'";]/g, ''); //strip leading @ and prevent sqli
-  const query = `SELECT date, followersCount, followsCount, postsCount FROM stats WHERE did = ? ORDER BY date ASC LIMIT 30`;
+  const query = `SELECT date, followersCount, followsCount, postsCount FROM stats WHERE did = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) ORDER BY date ASC`;
   connection.query(query, [filterDid], (err, results) => {
     if (err) {
       writeLog('error.log', (`Error fetching chart data: ${err}`))
@@ -160,6 +160,96 @@ app.post('/api/resolve/:handle', async (req, res) => {
     console.error(error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
+});
+
+//count best days endpoint
+app.get('/api/mostincreased/:userdid', (req, res) => {
+  const { userdid } = req.params;
+  const filterDid = userdid.replace(/[@'";]/g, ''); //strip leading @ and prevent sqli
+
+  if (!userdid) {
+    return res.status(400).json({ error: 'Missing did parameter' });
+  }
+
+  // Query to find the date with the most increase in postsCount
+  const postsCountQuery = `
+    SELECT date, MAX(postsCount - prev_postsCount) AS postsCountIncrease
+    FROM (
+      SELECT date, postsCount, 
+             (SELECT postsCount FROM stats s2 WHERE s2.did = s.did AND s2.date < s.date ORDER BY s2.date DESC LIMIT 1) AS prev_postsCount
+      FROM stats s
+      WHERE did = ?
+    ) AS subquery
+    GROUP BY date
+    ORDER BY postsCountIncrease DESC
+    LIMIT 1
+  `;
+
+  // Query to find the date with the most increase in followersCount
+  const followersCountQuery = `
+    SELECT date, MAX(followersCount - prev_followersCount) AS followersCountIncrease
+    FROM (
+      SELECT date, followersCount, 
+             (SELECT followersCount FROM stats s2 WHERE s2.did = s.did AND s2.date < s.date ORDER BY s2.date DESC LIMIT 1) AS prev_followersCount
+      FROM stats s
+      WHERE did = ?
+    ) AS subquery
+    GROUP BY date
+    ORDER BY followersCountIncrease DESC
+    LIMIT 1
+  `;
+
+  // Query to find the date with the most increase in followsCount
+  const followsCountQuery = `
+    SELECT date, MAX(followsCount - prev_followsCount) AS followsCountIncrease
+    FROM (
+      SELECT date, followsCount, 
+             (SELECT followsCount FROM stats s2 WHERE s2.did = s.did AND s2.date < s.date ORDER BY s2.date DESC LIMIT 1) AS prev_followsCount
+      FROM stats s
+      WHERE did = ?
+    ) AS subquery
+    GROUP BY date
+    ORDER BY followsCountIncrease DESC
+    LIMIT 1
+  `;
+
+  connection.query(postsCountQuery, [filterDid], (err, postsCountResult) => {
+    if (err) {
+      console.error('Error querying MySQL for postsCount: ', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+
+    connection.query(followersCountQuery, [filterDid], (err, followersCountResult) => {
+      if (err) {
+        console.error('Error querying MySQL for followersCount: ', err);
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+
+      connection.query(followsCountQuery, [filterDid], (err, followsCountResult) => {
+        if (err) {
+          console.error('Error querying MySQL for followsCount: ', err);
+          return res.status(500).json({ error: 'Internal server error' });
+        }
+
+        const postsCountIncrease = postsCountResult.length ? postsCountResult[0].postsCountIncrease : 0;
+        const followersCountIncrease = followersCountResult.length ? followersCountResult[0].followersCountIncrease : 0;
+        const followsCountIncrease = followsCountResult.length ? followsCountResult[0].followsCountIncrease : 0;
+
+        const postsCountDate = postsCountResult.length ? postsCountResult[0].date : null;
+        const followersCountDate = followersCountResult.length ? followersCountResult[0].date : null;
+        const followsCountDate = followsCountResult.length ? followsCountResult[0].date : null;
+
+        res.json({ 
+          followersCountDate,
+          followersCountIncrease,
+          followsCountDate,
+          followsCountIncrease,
+          postsCountDate,
+          postsCountIncrease
+        });
+      });
+    });
+  });
 });
 
 // Autocomplete endpoint
