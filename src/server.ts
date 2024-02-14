@@ -55,7 +55,21 @@ connection.connect((err) => {
   }
 });
 
-// Endpoint to select all rows from the "stats" table by userdid
+// Endpoint to get profile information by handle
+app.get('/api/profile/:handle', async (req: Request, res: Response) => {
+  try {
+    const { handle } = req.params;
+    await checkSession(backend_did);
+    let gp = await agent.getProfile({ actor: handle });
+    res.json(gp.data);
+  } catch (error) {
+    console.error('Error fetching user profile data:', error);
+    writeLog('error.log', (`Error fetching profile: ${error}`))
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// 7 day stats
 app.get('/api/stats/:userdid', (req: Request, res: Response) => {
   const { userdid } = req.params;
   const filterDid = userdid.replace(/[@'";]/g, ''); //strip leading @ and prevent sqli
@@ -82,7 +96,7 @@ app.get('/api/stats/:userdid', (req: Request, res: Response) => {
   });
 });
 
-// Stats for charts
+//30 day charts
 app.get('/api/charts/:userdid', (req: Request, res: Response) => {
   const { userdid } = req.params;
   const filterDid = userdid.replace(/[@'";]/g, ''); //strip leading @ and prevent sqli
@@ -95,71 +109,6 @@ app.get('/api/charts/:userdid', (req: Request, res: Response) => {
       res.json(results);
     }
   });
-});
-
-// Endpoint to get profile information by handle
-app.get('/api/profile/:handle', async (req: Request, res: Response) => {
-  try {
-    const { handle } = req.params;
-    await checkSession(backend_did);
-    let gp = await agent.getProfile({ actor: handle });
-    res.json(gp.data);
-  } catch (error) {
-    console.error('Error fetching user profile data:', error);
-    writeLog('error.log', (`Error fetching profile: ${error}`))
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-// Endpoint to get suggested follows by handle
-app.get('/api/suggested/:handle', async (req: Request, res: Response) => {
-  try {
-    const { handle } = req.params;
-    await checkSession(backend_did);
-    let suggested = await agent.app.bsky.graph.getSuggestedFollowsByActor({ actor: handle });
-    const allSugg = suggested.data.suggestions
-    const topTen = allSugg.slice(0, 10);
-      res.json(topTen);
-    //res.json(suggested.data);
-  } catch (error) {
-    console.error('Error fetching suggestions:', error);
-    writeLog('error.log', (`Error fetching suggestions: ${error}`))
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-app.get('/api/followers/:handle/:cursor?', async (req, res) => {
-  let arr: AppBskyActorDefs.ProfileViewBasic[] = [];
-  let currentPage = 0;
-  const SANITY_PAGE_LIMIT = 5000
-  const PAGE_SIZE = 15
-  const { handle, cursor } = req.params;
-  try {
-    const followers = await fetch(`https://api.bsky.app/xrpc/app.bsky.graph.getFollowers?actor=${handle}&cursor=${cursor || ''}&limit=${PAGE_SIZE}`);
-    let data = followers.json()
-    if (!followers.ok) {
-      throw new Error('Failed to fetch data');
-    }
-    arr = arr.concat(await data);
-    res.json(arr);
-  } catch (error) {
-    console.error('Error fetching followers:', error);
-    writeLog('error.log', (`Error fetching followers: ${error}`))
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-//resolve handle to did
-app.post('/api/resolve/:handle', async (req, res) => {
-  try {
-    const { handle } = req.params; 
-    const result = await agent.resolveHandle({ handle });
-    let resolved = result.data.did
-    res.status(200).json(resolved);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
 //count best days endpoint
@@ -239,7 +188,7 @@ app.get('/api/mostincreased/:userdid', (req, res) => {
         const followersCountDate = followersCountResult.length ? followersCountResult[0].date : null;
         const followsCountDate = followsCountResult.length ? followsCountResult[0].date : null;
 
-        res.json({ 
+        res.json({
           followersCountDate,
           followersCountIncrease,
           followsCountDate,
@@ -251,6 +200,103 @@ app.get('/api/mostincreased/:userdid', (req, res) => {
     });
   });
 });
+
+app.get('/api/monthly/:userdid', (req, res) => {
+  const { userdid } = req.params; // Extracting 'did' from URL params
+  const filterDid = userdid.replace(/[@'";]/g, '');
+  try {
+    // Query to retrieve stats for the last day of every month and the most recent day available
+    const query = `
+      (SELECT
+        followsCount,
+        followersCount,
+        postsCount,
+        date
+      FROM
+        stats
+      WHERE
+        DATE_FORMAT(date, '%Y-%m-%d') = LAST_DAY(date) AND
+        did = ?
+      ORDER BY date DESC LIMIT 1)
+      UNION ALL
+      (SELECT
+        followsCount,
+        followersCount,
+        postsCount,
+        date
+      FROM
+        stats
+      WHERE
+        did = ?
+      ORDER BY date DESC LIMIT 1)
+    `;
+
+    connection.query(query, [filterDid, filterDid], (err, results) => {
+      if (err) {
+        console.error('Error executing query', err);
+        res.status(500).json({ error: 'Internal server error' });
+        return;
+      }
+      res.json(results);
+    });
+  } catch (err) {
+    console.error('Error executing query', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Endpoint to get suggested follows by handle
+app.get('/api/suggested/:handle', async (req: Request, res: Response) => {
+  try {
+    const { handle } = req.params;
+    await checkSession(backend_did);
+    let suggested = await agent.app.bsky.graph.getSuggestedFollowsByActor({ actor: handle });
+    const allSugg = suggested.data.suggestions
+    const topTen = allSugg.slice(0, 10);
+    res.json(topTen);
+    //res.json(suggested.data);
+  } catch (error) {
+    console.error('Error fetching suggestions:', error);
+    writeLog('error.log', (`Error fetching suggestions: ${error}`))
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+app.get('/api/followers/:handle/:cursor?', async (req, res) => {
+  let arr: AppBskyActorDefs.ProfileViewBasic[] = [];
+  let currentPage = 0;
+  const SANITY_PAGE_LIMIT = 5000
+  const PAGE_SIZE = 15
+  const { handle, cursor } = req.params;
+  try {
+    const followers = await fetch(`https://api.bsky.app/xrpc/app.bsky.graph.getFollowers?actor=${handle}&cursor=${cursor || ''}&limit=${PAGE_SIZE}`);
+    let data = followers.json()
+    if (!followers.ok) {
+      throw new Error('Failed to fetch data');
+    }
+    arr = arr.concat(await data);
+    res.json(arr);
+  } catch (error) {
+    console.error('Error fetching followers:', error);
+    writeLog('error.log', (`Error fetching followers: ${error}`))
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+//resolve handle to did
+app.post('/api/resolve/:handle', async (req, res) => {
+  try {
+    const { handle } = req.params;
+    const result = await agent.resolveHandle({ handle });
+    let resolved = result.data.did
+    res.status(200).json(resolved);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
 
 // Autocomplete endpoint
 app.use(express.json());
@@ -288,15 +334,15 @@ cron.schedule('00 23 * * *', async () => {
     for (const optedInRow of optedInRows) {
       const { dids } = optedInRow;
       try {
-      // Fetch data using the agent.getProfile
-      let gp = await agent.getProfile({ actor: dids })
+        // Fetch data using the agent.getProfile
+        let gp = await agent.getProfile({ actor: dids })
 
-      // Insert the fetched data into the "stats" table
-      const insertQuery = 'INSERT INTO stats (did, date, followersCount, followsCount, postsCount) VALUES (?, ?, ?, ?, ?)';
-      await executeQuery(insertQuery, [gp.data.did, formattedTime, gp.data.followersCount, gp.data.followsCount, gp.data.postsCount]);
+        // Insert the fetched data into the "stats" table
+        const insertQuery = 'INSERT INTO stats (did, date, followersCount, followsCount, postsCount) VALUES (?, ?, ?, ?, ?)';
+        await executeQuery(insertQuery, [gp.data.did, formattedTime, gp.data.followersCount, gp.data.followsCount, gp.data.postsCount]);
       } catch (error) {
-      writeLog('stats.log', (`Error processing ${dids ?? 'user'}: ${error.message}`))
-      continue;
+        writeLog('stats.log', (`Error processing ${dids ?? 'user'}: ${error.message}`))
+        continue;
       }
     }
     console.log('Cron job executed successfully');
