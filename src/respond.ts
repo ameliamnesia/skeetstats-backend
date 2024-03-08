@@ -115,6 +115,7 @@ export async function getMeta(url: string): Promise<{ title: string | null, desc
 }
 
 export async function reply(authordid: string, cid: string, uri: string, name: string, handle: string, replytext: string, replyParent?: string, replyParentCid?: string, replyRoot?: string, replyRootCid?: string) {
+  try {
   await checkSession(backend_did)
   const websiteUrl = 'https://skeetstats.xyz';
   const { title, description } = await getMeta(websiteUrl);
@@ -148,4 +149,7 @@ export async function reply(authordid: string, cid: string, uri: string, name: s
   })
   await agent.like(uri, cid)
   await updateIsReadStatus(cid);
+} catch (error) {
+  writeLog('respond_error.log', (`Error responding: ${error}`))
+}
 }

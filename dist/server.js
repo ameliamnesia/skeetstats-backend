@@ -65,43 +65,52 @@ app.get('/api/profile/:handle', async (req, res) => {
 app.get('/api/stats/:userdid', (req, res) => {
     const { userdid } = req.params;
     const filterDid = userdid.replace(/[@'";]/g, ''); //strip leading @ and prevent sqli
-    const query = `SELECT
-    date,
-    CONCAT(followersCount, ' (', COALESCE(followersCount - LAG(followersCount) OVER (ORDER BY date), 0), ')') AS followersCount,
-    CONCAT(followsCount, ' (', COALESCE(followsCount - LAG(followsCount) OVER (ORDER BY date), 0), ')') AS followsCount,
-    CONCAT(postsCount, ' (', COALESCE(postsCount - LAG(postsCount) OVER (ORDER BY date), 0), ')') AS postsCount
-  FROM
-    stats
-  WHERE
-    did = ?
-  ORDER BY
-    date DESC
-    LIMIT 7`;
-    connection.query(query, [filterDid], (err, results) => {
-        if (err) {
-            console.error('Error fetching stats:', err);
-            writeLog('error.log', (`Error fetching stats: ${err}`));
-            res.status(500).json({ error: 'Internal Server Error' });
-        }
-        else {
-            res.json(results);
-        }
-    });
+    const page = req.query.page ? parseInt(req.query.page) : 1;
+    const pageSize = 7;
+    const offset = (page - 1) * pageSize;
+    try {
+        const query = `
+      SELECT date,
+        CONCAT(followersCount, ' (', COALESCE(followersCount - LAG(followersCount) OVER (ORDER BY date), 0), ')') AS followersCount,
+        CONCAT(followsCount, ' (', COALESCE(followsCount - LAG(followsCount) OVER (ORDER BY date), 0), ')') AS followsCount,
+        CONCAT(postsCount, ' (', COALESCE(postsCount - LAG(postsCount) OVER (ORDER BY date), 0), ')') AS postsCount
+      FROM stats WHERE did = ? ORDER BY date DESC LIMIT ? OFFSET ?`;
+        connection.query(query, [filterDid, pageSize, offset], (err, results) => {
+            if (err) {
+                console.error('Error fetching stats:', err);
+                writeLog('error.log', (`Error fetching stats: ${err}`));
+                res.status(500).json({ error: 'Internal Server Error' });
+            }
+            else {
+                res.json(results);
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error executing query', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 //30 day charts
 app.get('/api/charts/:userdid', (req, res) => {
     const { userdid } = req.params;
     const filterDid = userdid.replace(/[@'";]/g, ''); //strip leading @ and prevent sqli
-    const query = `SELECT date, followersCount, followsCount, postsCount FROM stats WHERE did = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) ORDER BY date ASC`;
-    connection.query(query, [filterDid], (err, results) => {
-        if (err) {
-            writeLog('error.log', (`Error fetching chart data: ${err}`));
-            res.status(500).json({ error: 'Internal Server Error' });
-        }
-        else {
-            res.json(results);
-        }
-    });
+    try {
+        const query = `SELECT date, followersCount, followsCount, postsCount FROM stats WHERE did = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) ORDER BY date ASC`;
+        connection.query(query, [filterDid], (err, results) => {
+            if (err) {
+                writeLog('error.log', (`Error fetching chart data: ${err}`));
+                res.status(500).json({ error: 'Internal Server Error' });
+            }
+            else {
+                res.json(results);
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error executing query', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 //count best days endpoint
 app.get('/api/mostincreased/:userdid', (req, res) => {
@@ -110,114 +119,86 @@ app.get('/api/mostincreased/:userdid', (req, res) => {
     if (!userdid) {
         return res.status(400).json({ error: 'Missing did parameter' });
     }
-    // Query to find the date with the most increase in postsCount
-    const postsCountQuery = `
-    SELECT date, MAX(postsCount - prev_postsCount) AS postsCountIncrease
-    FROM (
-      SELECT date, postsCount, 
-             (SELECT postsCount FROM stats s2 WHERE s2.did = s.did AND s2.date < s.date ORDER BY s2.date DESC LIMIT 1) AS prev_postsCount
+    try {
+        // Query to find the date with the most increase in postsCount
+        const postsCountQuery = `
+  SELECT date, MAX(postsCount - prev_postsCount) AS postsCountIncrease
+  FROM (
+      SELECT s.date, s.postsCount, 
+             @prev_postsCount AS prev_postsCount,
+             @prev_postsCount := s.postsCount
       FROM stats s
-      WHERE did = ?
-    ) AS subquery
-    GROUP BY date
-    ORDER BY postsCountIncrease DESC
-    LIMIT 1
+      CROSS JOIN (SELECT @prev_postsCount := NULL) AS init
+      WHERE s.did = ?
+      ORDER BY s.date
+  ) AS subquery
+  GROUP BY date
+  ORDER BY postsCountIncrease DESC
+  LIMIT 1;
   `;
-    // Query to find the date with the most increase in followersCount
-    const followersCountQuery = `
-    SELECT date, MAX(followersCount - prev_followersCount) AS followersCountIncrease
-    FROM (
-      SELECT date, followersCount, 
-             (SELECT followersCount FROM stats s2 WHERE s2.did = s.did AND s2.date < s.date ORDER BY s2.date DESC LIMIT 1) AS prev_followersCount
+        // Query to find the date with the most increase in followersCount
+        const followersCountQuery = `
+  SELECT date, MAX(followersCount - prev_followersCount) AS followersCountIncrease
+  FROM (
+      SELECT s.date, s.followersCount, 
+             @prev_followersCount AS prev_followersCount,
+             @prev_followersCount := s.followersCount
       FROM stats s
-      WHERE did = ?
-    ) AS subquery
-    GROUP BY date
-    ORDER BY followersCountIncrease DESC
-    LIMIT 1
+      CROSS JOIN (SELECT @prev_followersCount := NULL) AS init
+      WHERE s.did = ?
+      ORDER BY s.date
+  ) AS subquery
+  GROUP BY date
+  ORDER BY followersCountIncrease DESC
+  LIMIT 1;
   `;
-    // Query to find the date with the most increase in followsCount
-    const followsCountQuery = `
-    SELECT date, MAX(followsCount - prev_followsCount) AS followsCountIncrease
-    FROM (
-      SELECT date, followsCount, 
-             (SELECT followsCount FROM stats s2 WHERE s2.did = s.did AND s2.date < s.date ORDER BY s2.date DESC LIMIT 1) AS prev_followsCount
+        // Query to find the date with the most increase in followsCount
+        const followsCountQuery = `
+  SELECT date, MAX(followsCount - prev_followsCount) AS followsCountIncrease
+  FROM (
+      SELECT s.date, s.followsCount, 
+             @prev_followsCount AS prev_followsCount,
+             @prev_followsCount := s.followsCount
       FROM stats s
-      WHERE did = ?
-    ) AS subquery
-    GROUP BY date
-    ORDER BY followsCountIncrease DESC
-    LIMIT 1
+      CROSS JOIN (SELECT @prev_followsCount := NULL) AS init
+      WHERE s.did = ?
+      ORDER BY s.date
+  ) AS subquery
+  GROUP BY date
+  ORDER BY followsCountIncrease DESC
+  LIMIT 1;
   `;
-    connection.query(postsCountQuery, [filterDid], (err, postsCountResult) => {
-        if (err) {
-            console.error('Error querying MySQL for postsCount: ', err);
-            return res.status(500).json({ error: 'Internal server error' });
-        }
-        connection.query(followersCountQuery, [filterDid], (err, followersCountResult) => {
+        connection.query(postsCountQuery, [filterDid], (err, postsCountResult) => {
             if (err) {
-                console.error('Error querying MySQL for followersCount: ', err);
+                console.error('Error querying MySQL for postsCount: ', err);
                 return res.status(500).json({ error: 'Internal server error' });
             }
-            connection.query(followsCountQuery, [filterDid], (err, followsCountResult) => {
+            connection.query(followersCountQuery, [filterDid], (err, followersCountResult) => {
                 if (err) {
-                    console.error('Error querying MySQL for followsCount: ', err);
+                    console.error('Error querying MySQL for followersCount: ', err);
                     return res.status(500).json({ error: 'Internal server error' });
                 }
-                const postsCountIncrease = postsCountResult.length ? postsCountResult[0].postsCountIncrease : 0;
-                const followersCountIncrease = followersCountResult.length ? followersCountResult[0].followersCountIncrease : 0;
-                const followsCountIncrease = followsCountResult.length ? followsCountResult[0].followsCountIncrease : 0;
-                const postsCountDate = postsCountResult.length ? postsCountResult[0].date : null;
-                const followersCountDate = followersCountResult.length ? followersCountResult[0].date : null;
-                const followsCountDate = followsCountResult.length ? followsCountResult[0].date : null;
-                res.json({
-                    followersCountDate,
-                    followersCountIncrease,
-                    followsCountDate,
-                    followsCountIncrease,
-                    postsCountDate,
-                    postsCountIncrease
+                connection.query(followsCountQuery, [filterDid], (err, followsCountResult) => {
+                    if (err) {
+                        console.error('Error querying MySQL for followsCount: ', err);
+                        return res.status(500).json({ error: 'Internal server error' });
+                    }
+                    const postsCountIncrease = postsCountResult.length ? postsCountResult[0].postsCountIncrease : 0;
+                    const followersCountIncrease = followersCountResult.length ? followersCountResult[0].followersCountIncrease : 0;
+                    const followsCountIncrease = followsCountResult.length ? followsCountResult[0].followsCountIncrease : 0;
+                    const postsCountDate = postsCountResult.length ? postsCountResult[0].date : null;
+                    const followersCountDate = followersCountResult.length ? followersCountResult[0].date : null;
+                    const followsCountDate = followsCountResult.length ? followsCountResult[0].date : null;
+                    res.json({
+                        followersCountDate,
+                        followersCountIncrease,
+                        followsCountDate,
+                        followsCountIncrease,
+                        postsCountDate,
+                        postsCountIncrease
+                    });
                 });
             });
-        });
-    });
-});
-app.get('/api/monthly/:userdid', (req, res) => {
-    const { userdid } = req.params; // Extracting 'did' from URL params
-    const filterDid = userdid.replace(/[@'";]/g, '');
-    try {
-        // Query to retrieve stats for the last day of every month and the most recent day available
-        const query = `
-      (SELECT
-        followsCount,
-        followersCount,
-        postsCount,
-        date
-      FROM
-        stats
-      WHERE
-        DATE_FORMAT(date, '%Y-%m-%d') = LAST_DAY(date) AND
-        did = ?
-      ORDER BY date DESC LIMIT 1)
-      UNION ALL
-      (SELECT
-        followsCount,
-        followersCount,
-        postsCount,
-        date
-      FROM
-        stats
-      WHERE
-        did = ?
-      ORDER BY date DESC LIMIT 1)
-    `;
-        connection.query(query, [filterDid, filterDid], (err, results) => {
-            if (err) {
-                console.error('Error executing query', err);
-                res.status(500).json({ error: 'Internal server error' });
-                return;
-            }
-            res.json(results);
         });
     }
     catch (err) {
@@ -225,6 +206,81 @@ app.get('/api/monthly/:userdid', (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+//get monthly data
+app.get('/api/monthly/:userdid', async (req, res) => {
+    const userdid = req.params.userdid;
+    const filterDid = userdid.replace(/[@'";]/g, '');
+    try {
+        // Query to get earliest data for each month
+        const earliestQuery = `
+      SELECT 
+          CONCAT(LPAD(MONTH(s.date), 2, '0'), '-', YEAR(s.date)) AS month_year,
+          s.followsCount AS earliestFollowsCount,
+          s.followersCount AS earliestFollowersCount,
+          s.postsCount AS earliestPostsCount
+      FROM stats s
+      JOIN (
+          SELECT MIN(date) AS min_date, YEAR(date) AS year, MONTH(date) AS month
+          FROM stats
+          WHERE did = ?
+          GROUP BY YEAR(date), MONTH(date)
+      ) AS min_dates
+      ON s.date = min_dates.min_date
+      AND YEAR(s.date) = min_dates.year
+      AND MONTH(s.date) = min_dates.month
+      AND s.did = ?
+    `;
+        // Query to get latest data for each month
+        const latestQuery = `
+      SELECT 
+          CONCAT(LPAD(MONTH(s.date), 2, '0'), '-', YEAR(s.date)) AS month_year,
+          s.followsCount AS latestFollowsCount,
+          s.followersCount AS latestFollowersCount,
+          s.postsCount AS latestPostsCount
+      FROM stats s
+      JOIN (
+          SELECT MAX(date) AS max_date, YEAR(date) AS year, MONTH(date) AS month
+          FROM stats
+          WHERE did = ?
+          GROUP BY YEAR(date), MONTH(date)
+      ) AS max_dates
+      ON s.date = max_dates.max_date
+      AND YEAR(s.date) = max_dates.year
+      AND MONTH(s.date) = max_dates.month
+      AND s.did = ?
+    `;
+        // Execute both queries
+        const earliestResults = await executeQuery(earliestQuery, [filterDid, filterDid]);
+        const latestResults = await executeQuery(latestQuery, [filterDid, filterDid]);
+        // Calculate differences
+        const diffResults = earliestResults.map((earliest, index) => {
+            const latest = latestResults[index];
+            return {
+                followsCount: latest.latestFollowsCount - earliest.earliestFollowsCount,
+                followersCount: latest.latestFollowersCount - earliest.earliestFollowersCount,
+                postsCount: latest.latestPostsCount - earliest.earliestPostsCount,
+                date: earliest.month_year
+            };
+        });
+        // Return the differences
+        res.json(diffResults);
+    }
+    catch (error) {
+        console.error('Error executing MySQL query:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+async function describeRepo(did) {
+    try {
+        const repoDesc = await agent.api.com.atproto.repo.describeRepo({ repo: did });
+        const repoHandle = repoDesc.data.handle;
+        return repoHandle;
+    }
+    catch (error) {
+        writeLog('test.log', (`Error fetching repo: ${error}`));
+        return null;
+    }
+}
 // Endpoint to get suggested follows by handle
 app.get('/api/suggested/:handle', async (req, res) => {
     try {
@@ -274,6 +330,7 @@ app.post('/api/resolve/:handle', async (req, res) => {
     catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Internal Server Error' });
+        //res.redirect('https://skeetstats.xyz/error');
     }
 });
 // Autocomplete endpoint
@@ -300,8 +357,6 @@ app.get('*', (req, res) => {
 //REDIRECT, DO NOT PUT ANY ROUTES AFTER THIS//
 cron.schedule('00 23 * * *', async () => {
     await checkSession(backend_did);
-    const currentTime = new Date();
-    const formattedTime = `${currentTime.getFullYear()}-${(currentTime.getMonth() + 1).toString().padStart(2, '0')}-${currentTime.getDate().toString().padStart(2, '0')} ${currentTime.getHours().toString().padStart(2, '0')}:${currentTime.getMinutes().toString().padStart(2, '0')}:${currentTime.getSeconds().toString().padStart(2, '0')}`;
     try {
         // Select all rows from the "opted_in" table
         const selectQuery = 'SELECT dids FROM opted_in';
@@ -313,8 +368,8 @@ cron.schedule('00 23 * * *', async () => {
                 // Fetch data using the agent.getProfile
                 let gp = await agent.getProfile({ actor: dids });
                 // Insert the fetched data into the "stats" table
-                const insertQuery = 'INSERT INTO stats (did, date, followersCount, followsCount, postsCount) VALUES (?, ?, ?, ?, ?)';
-                await executeQuery(insertQuery, [gp.data.did, formattedTime, gp.data.followersCount, gp.data.followsCount, gp.data.postsCount]);
+                const insertQuery = 'INSERT INTO stats (did, followersCount, followsCount, postsCount) VALUES (?, ?, ?, ?)';
+                await executeQuery(insertQuery, [gp.data.did, gp.data.followersCount, gp.data.followsCount, gp.data.postsCount]);
             }
             catch (error) {
                 writeLog('stats.log', (`Error processing ${dids ?? 'user'}: ${error.message}`));

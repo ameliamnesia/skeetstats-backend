@@ -105,37 +105,42 @@ export async function getMeta(url) {
     });
 }
 export async function reply(authordid, cid, uri, name, handle, replytext, replyParent, replyParentCid, replyRoot, replyRootCid) {
-    await checkSession(backend_did);
-    const websiteUrl = 'https://skeetstats.xyz';
-    const { title, description } = await getMeta(websiteUrl);
-    let trunchandle = name.slice(0, 200);
-    let shortname = name.slice(0, 30);
-    let urlhandle = handle ?? authordid;
-    await agent.app.bsky.feed.post.create({
-        repo: backend_did,
-    }, {
-        reply: {
-            parent: {
-                cid: cid,
-                uri: uri,
+    try {
+        await checkSession(backend_did);
+        const websiteUrl = 'https://skeetstats.xyz';
+        const { title, description } = await getMeta(websiteUrl);
+        let trunchandle = name.slice(0, 200);
+        let shortname = name.slice(0, 30);
+        let urlhandle = handle ?? authordid;
+        await agent.app.bsky.feed.post.create({
+            repo: backend_did,
+        }, {
+            reply: {
+                parent: {
+                    cid: cid,
+                    uri: uri,
+                },
+                root: {
+                    cid: replyRootCid ?? cid,
+                    uri: replyRoot ?? uri,
+                },
             },
-            root: {
-                cid: replyRootCid ?? cid,
-                uri: replyRoot ?? uri,
+            text: trunchandle + replytext,
+            lang: 'en',
+            embed: {
+                $type: 'app.bsky.embed.external',
+                external: {
+                    uri: `${websiteUrl}/user/${urlhandle}`,
+                    title: `${title} - ${shortname}` || 'SkeetStats',
+                    description: description || 'track your posting stats!',
+                },
             },
-        },
-        text: trunchandle + replytext,
-        lang: 'en',
-        embed: {
-            $type: 'app.bsky.embed.external',
-            external: {
-                uri: `${websiteUrl}/user/${urlhandle}`,
-                title: `${title} - ${shortname}` || 'SkeetStats',
-                description: description || 'track your posting stats!',
-            },
-        },
-        createdAt: new Date().toISOString(),
-    });
-    await agent.like(uri, cid);
-    await updateIsReadStatus(cid);
+            createdAt: new Date().toISOString(),
+        });
+        await agent.like(uri, cid);
+        await updateIsReadStatus(cid);
+    }
+    catch (error) {
+        writeLog('respond_error.log', (`Error responding: ${error}`));
+    }
 }
